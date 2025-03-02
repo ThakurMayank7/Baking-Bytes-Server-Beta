@@ -3,7 +3,12 @@ const express = require("express");
 const jwt = require("jsonwebtoken");
 const cors = require("cors");
 
-const { createUser } = require("./actions");
+const { authenticateJWT } = require("../middleware/auth");
+
+const {
+  createUser,
+  verifyPassword,
+} = require("../authentication/authentication");
 
 const db = require("../firebase/firebase");
 
@@ -37,30 +42,35 @@ app.post("/signup", async (req, res) => {
 });
 
 app.post("/login", async (req, res) => {
-    const { email, password } = req.body;
-    
-    if (!email || !password) {
-        return res.status(400).send("Missing required fields");
-    }
-    
-    const userRef = db.collection("users").where("email", "==", email);
-    const snapshot = await userRef.get();
-    
-    if (snapshot.empty) {
-        return res.status(404).send("User not found");
-    }
-    
-    const user = snapshot.docs[0].data();
-    
-    if (user.password !== password) {
-        return res.status(401).send("Invalid password");
-    }
-    
-    const payload = { userName: user.userName, email, userId: snapshot.docs[0].id };
-    const token = jwt.sign(payload, SECRET_KEY, { expiresIn: "7d" });
-    
-    res.send({ token });
-    });
+  const { email, password } = req.body;
+
+  if (!email || !password) {
+    return res.status(400).send("Missing required fields");
+  }
+
+  const userRef = db.collection("users").where("email", "==", email);
+  const snapshot = await userRef.get();
+
+  if (snapshot.empty) {
+    return res.status(404).send("User not found");
+  }
+
+  const user = snapshot.docs[0].data();
+
+  const result = await verifyPassword(password, user.hashedPassword);
+  if (!result) {
+    return res.status(401).send("Invalid password");
+  }
+
+  const payload = {
+    userName: user.userName,
+    email,
+    userId: snapshot.docs[0].id,
+  };
+  const token = jwt.sign(payload, SECRET_KEY, { expiresIn: "7d" });
+
+  res.send({ token });
+});
 
 app.post("/verify-token", async (req, res) => {
   const { token } = req.body;
@@ -76,6 +86,26 @@ app.post("/verify-token", async (req, res) => {
   } catch (error) {
     res.status(401).send("Invalid token");
   }
+});
+
+app.post("/modify-text", authenticateJWT, async (req, res) => {
+  const { text } = req.body;
+  const { userId } = req.user;
+
+  if (!text) {
+    return res.status(400).send("Missing required fields");
+  }
+
+  res.send(true);
+
+  // const userRef = db.collection("users").doc(userId);
+
+  // try {
+  //   await userRef.update({ text });
+  //   res.send("Text updated");
+  // } catch (error) {
+  //   res.status(400).send("Error updating text");
+  // }
 });
 
 app.listen(PORT, () => {
